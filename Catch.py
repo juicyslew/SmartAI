@@ -121,7 +121,6 @@ class CatchGame():
         i=0
         wallcenters = tuple([wall.shape.center for wall in self.walls])
         while True:
-            i+=1
             New = 0
             EndTest = 0
             checked = interpoints.copy()
@@ -151,7 +150,6 @@ class CatchGame():
                     break
             if EndTest:
                 break
-            print(i)
             if New == 0:
                 print('no path to end, resetting')
                 self.state = STATE_RESET
@@ -159,9 +157,7 @@ class CatchGame():
         if EndTest:
             end = self.enter_E.shape.center
             interpoints = [self.exit_E.shape.center]
-            i=0
             while True:
-                i+=1
                 New = 0
                 checked = interpoints.copy()
                 for point in checked:
@@ -183,11 +179,47 @@ class CatchGame():
                                     print('enough new points that there is probably a path')
                                     return True
                             continue
-                print(i)
                 if New == 0:
                     print('no path to end, resetting')
                     self.state = STATE_RESET
                     break
+
+    """def draw_ground_realistic_lighting(self):
+        finalpoints = [[0,0,0]]
+        finalpoints[0][0] = round((self.player.shape.centerx-OBJ_W/2)/OBJ_W,0)*OBJ_W
+        finalpoints[0][1] = round((self.player.shape.centery-OBJ_H/2)/OBJ_H,0)*OBJ_H
+        interpoints = [[finalpoints[0][0],finalpoints[0][1]]]
+        i=0
+        wallcenters = tuple([wall.shape.center for wall in self.walls])
+        while i<LIGHT_TILE_DIST:
+            checked = interpoints.copy()
+            interpoints = []
+            for point in checked:
+                newpoints = ((point[0] + OBJ_W, point[1]),(point[0] - OBJ_W, point[1]),(point[0], point[1]+OBJ_H),(point[0], point[1]-OBJ_H))
+                for newpoint in newpoints:
+                    con = False
+                    if 0<newpoint[0]<GAME_SIZE[0] and 0<newpoint[1]<GAME_SIZE[1]:
+                        inwall = 0
+                        for f in finalpoints:
+                            if newpoint == f[0:1]:
+                                con = True
+                                break
+                        if con:
+                            continue
+                        if not newpoint in wallcenters:
+                            interpoints.append(newpoint)
+                            finalpoints.append([newpoint[0], newpoint[1], i])
+                        continue
+            i+=1
+            print(i)
+            if not interpoints:
+                #print('filled light')
+                break
+        for pointx, pointy, tile_dist, in finalpoints:
+            points = self.camera.apply(((pointx,pointy),))[0]
+            tile = pg.Rect(points[0],points[1],OBJ_W,OBJ_H)
+            lighting = (1-tile_dist/i)
+            pg.draw.rect(self.screen, [i*lighting for i in C_GROUND], tile)"""
 
     def draw_ground(self):
         for obj_ground in self.grounds:
@@ -220,7 +252,7 @@ class CatchGame():
             #obj_wall.found = True
             #self.walls_seen.append(tile)
             tile = self.camera.apply(obj_wall)
-            pg.draw.rect(self.screen, [i*lighting for i in C_WALL], tile)
+            pg.draw.rect(self.screen, [max(0, i*lighting) for i in C_WALL], tile)
             #elif obj_wall.found:
             #    tile = self.camera.apply(obj_wall)
             #    pg.draw.rect(self.screen, C_WALL_FOUND, tile)
@@ -249,6 +281,17 @@ class CatchGame():
             pg.draw.rect(self.screen, C_EXIT_FOUND, exit_tile)
 
     def draw_shadows(self):
+        for info in self.walls_in_vision:
+            #wall = info[0]
+            dist = info[1]
+            edges = info[3]
+            diff_edges = ((self.player.shape.center[0]-edges[0][0],self.player.shape.center[1]-edges[0][1]), (self.player.shape.center[0]-edges[1][0],self.player.shape.center[1]-edges[1][1])) #Put together the differences into a tuple of tuples
+            polyshape = (edges[0],[edges[0][x]-diff_edges[0][x]*PLAYER_MAX_VISION*3/dist for x in range(2)],[edges[1][x]-diff_edges[1][x]*PLAYER_MAX_VISION*3/dist for x in range(2)],edges[1])
+            shadow = self.camera.apply(polyshape)
+            pg.draw.polygon(self.screen, BLACK, shadow)
+
+    def draw_shadows_save_data(self):
+        #self.debugwalls = []
         polyshapes = []
         for info in self.walls_in_vision:
             #wall = info[0]
@@ -257,21 +300,28 @@ class CatchGame():
             diff_edges = ((self.player.shape.center[0]-edges[0][0],self.player.shape.center[1]-edges[0][1]), (self.player.shape.center[0]-edges[1][0],self.player.shape.center[1]-edges[1][1])) #Put together the differences into a tuple of tuples
             polyshapes.append((edges[0],[edges[0][x]-diff_edges[0][x]*PLAYER_MAX_VISION*3/dist for x in range(2)],[edges[1][x]-diff_edges[1][x]*PLAYER_MAX_VISION*3/dist for x in range(2)],edges[1])) #Make sure edges go far enough to do cover entire lit area
         for j in range(len(self.walls_in_vision)):
-            rect = self.walls_in_vision[j][0].shape
+            focus_wall = self.walls_in_vision[j][0]
+            rect = focus_wall.shape
+            #orientation_dictionary = {(1,0):(rect.bottomleft,rect.bottomright), (-1,0):(rect.topleft,rect.topright), (0,1):(rect.topright,rect.bottomright), (0,-1):(rect.topleft,rect.bottomleft)}
+            dist = self.walls_in_vision[j][1]
             i=0
             draw = True
             for polyshape in polyshapes:
                 if i == j:
+                    i+=1
                     continue
-                shadow_src = self.walls_in_vision[i][0]
-                if Rect_in_Shadow(shadow_src, polyshape, rect, self.player):
-                    draw = False
-                    break
+                if dist < self.player.learn_vision:
+                    shadow_src = self.walls_in_vision[i][0]
+                    #dist_src = distance(shadow_src.shape.center, self.player.shape.center)
+                    if Rect_in_Shadow(shadow_src, polyshape, rect, self.player):#, orientation_dictionary):
+                        draw = False
+                        #self.debugwalls.append(focus_wall)
+                        break
                 i+=1
+            polyshape = polyshapes[j]
             if draw:
                 shadow = self.camera.apply(polyshape)
                 pg.draw.polygon(self.screen, BLACK, shadow)
-
 
 
     def draw_players(self):
@@ -284,6 +334,11 @@ class CatchGame():
             com_tile = self.camera.apply(self.computer)
             lighting = min(1,1-(dist/self.player.max_vision*FADEOUT_CONSTANT-(FADEOUT_CONSTANT-1)))
             pg.draw.rect(self.screen, [i * lighting for i in C_COMPUTER], com_tile)
+
+    def draw_debug_walls(self):
+        for wall in self.debugwalls:
+            tile = self.camera.apply(wall)
+            pg.draw.rect(self.screen, C_DEBUG_WALL, tile)
 
 
     def check_input(self):
@@ -352,12 +407,14 @@ class CatchGame():
     def Draw(self):
         self.screen.fill(BLACK) #fill background with black
         self.draw_ground()
+        #self.draw_ground_realistic_lighting()
         self.draw_walls()
         self.draw_enter()
         self.draw_exit()
         self.draw_players()
         if self.shade:
             self.draw_shadows()
+        #self.draw_debug_walls()
         pass
 
     def show_message(self,message): #Show message on screen
@@ -430,6 +487,7 @@ class Player():
         self.vision = PLAYER_VISION
         self.max_vision = PLAYER_MAX_VISION
         self.move_step = (0,0)
+        self.learn_vision = LEARN_VISION
     def movement_func(self, keys):
         return (keys[pg.K_RIGHT]-keys[pg.K_LEFT],keys[pg.K_DOWN]-keys[pg.K_UP])
 
@@ -438,7 +496,7 @@ class Computer(Player):
         return (random.random()*2-1,random.random()*2-1)
 
 def simple_camera_func(camera, target_rect):
-    l, t, _, _ = target_rect # l = left,  t = top
+    l, t = target_rect.center # l = left,  t = top
     _, _, w, h = camera      # w = width, h = height
     return pg.Rect(-l+SCREEN_SIZE[0]/2, -t+SCREEN_SIZE[1]/2, w, h)
 
@@ -456,52 +514,86 @@ def complex_camera_func(camera, target_rect):
 def distance(a,b):
     return sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
 
-def Rect_in_Shadow(wall, shadow, rect, player):
+def Rect_in_Shadow(wall, shadow, rect, player): #, orientation_dictionary):
     pr1 = shadow[0]
     pr2 = shadow[3]
     diff1 = [player.shape.center[i]-wall.shape.center[i] for i in range(2)]
     pr1_1 = shadow[1]
     pr2_1 = shadow[2]
     diff2 = [player.shape.center[i]-rect.center[i] for i in range(2)]
-    if diff1[0]*diff2[0] < 0 and diff1[1]*diff2[1]:
+    #if abs(diff1[0]) < OBJ_W or abs(diff2[0]) < OBJ_W or abs(diff1[1]) < OBJ_H or abs(diff2[1]) < OBJ_H:
+    chk1 = (diff1[0]*diff2[0] < 0)
+    chk2 = (diff1[1]*diff2[1] < 0)
+    chk3 = abs(diff1[0]) < OBJ_W/2 and abs(diff1[1]) < OBJ_H/2
+    #chk4 =
+    if chk1 or chk2: #abs(abs(diff1[0])-abs(diff2[0])) < OBJ_W or abs(abs(diff1[1])-abs(diff2[1])) < OBJ_H:#abs(diff1[1]) >= abs(diff2[1]):
+        if chk3:
+            return False
+    if chk1 and chk2:
         return False
 
-    orientation = [0,0]
-    if pr1[0] > pr2[0]:
-        orientation[0] = 1
-    else:
-        orientation[0] = -1
-    if pr1[1] > pr2[1]:
-        orientation[1] = 1
-    else:
-        orientation[1] = -1
-    if orientation[0] == orientation[1]:
+    "###instead of finding orientation, just find distance from the source of shadow to the testing wall and then move each shadow point to the testing wall, giving the orientation perfectly.###"
+    diff3 = [rect.center[i] - wall.shape.center[i] for i in range(2)]
+    r1 = [pr1[i]+diff3[i] for i in range(2)]
+    r2 = [pr2[i]+diff3[i] for i in range(2)]
+    #orientation = [0,0]
+    #orientation[0] = (pr1[0] >= pr2[0])*2-1
+    #orientation[1] = (pr1[1] >= pr2[1])*2-1
+    #if pr1[0] == pr2[0]:    #if abs(diff1[0]) < OBJ_W/2:
+#        orientation[0] = 0
+#    if pr1[1] == pr2[1]:    #if abs(diff1[1]) < OBJ_H/2:
+#        orientation[1] = 0
+#    orientation = tuple(orientation)
+    #if abs(diff1[0]-diff2[0])[0]orientation[0]
+    #if pr1[0] >= pr2[0]:
+    #    orientation[0] = 1
+    #else:
+    #    orientation[0] = -1
+    #if pr1[1] >= pr2[1]:
+    #    orientation[1] = 1
+    #else:
+    #    orientation[1] = -1
+    """if orientation[0] == orientation[1]:
         r1 = rect.topleft
         r2 = rect.bottomright
-    else:
+    elif orientation[0] == -orientation[1]:
         r1 = rect.topright
         r2 = rect.bottomleft
+    else:
+        r1, r2 = orientation_dictionary[orientation]"""
 
-    if orientation[0]:
-        if r1[1] < x_line(pr1,pr1_1,r1[0]) and r2[1] > x_line(pr2, pr2_1, r2[0]):
+    if r1[1] == r2[1]:
+        if r1[0] > y_line(pr1,pr1_1,r1[1]) and r2[0] < y_line(pr2, pr2_1, r2[1]):
             return True
+    else:
+        if r1[1] > x_line(pr1,pr1_1,r1[0]) and r2[1] < x_line(pr2, pr2_1, r2[0]):
+            return True
+    return False
 
+
+def y_line(p1,p2,y1):
+    """
+    Returns the x position on a line made by two points at given y position
+    """
+    xdiff = p1[0] - p2[0]
+    ydiff = p1[1] - p2[1]
+    if ydiff == 0:
+        ydiff = .000001
+    rise = xdiff / ydiff
+    offset = p1[0] - rise*p1[1]
+    return rise*y1 + offset
 
 def x_line(p1,p2,x1):
     """
     Returns the y position on a line made by two points at given x position
     """
-    if p1[0] < p2[0]:
-        minx = p1
-        maxx = p2
-    else:
-        minx = p2
-        maxx = p1
-    xdiff = maxx[0] - minx[0]
-    ydiff = maxx[1] - minx[1]
+    xdiff = p1[0] - p2[0]
+    ydiff = p1[1] - p2[1]
+    if xdiff == 0:
+        xdiff = .000001
     rise = ydiff / xdiff
-    offset = minx[0]
-    return rise*(x1-offset) + offset
+    offset = p1[1] - rise*p1[0]
+    return rise*x1 + offset
 
 def seen_edges(rectWatch, rectSeen):
     """
@@ -510,9 +602,9 @@ def seen_edges(rectWatch, rectSeen):
     [xdiff,ydiff] = [rectWatch.center[x]-rectSeen.center[x] for x in range(2)]
     if -rectSeen.w/2 < xdiff < rectSeen.w/2:
         if ydiff>0:
-            return (rectSeen.bottomright, rectSeen.bottomleft)
+            return (rectSeen.bottomleft, rectSeen.bottomright)
         else:
-            return (rectSeen.topright, rectSeen.topleft)
+            return (rectSeen.topleft, rectSeen.topright)
     elif -rectSeen.h/2 < ydiff < rectSeen.h/2:
         if xdiff>0:
             return (rectSeen.topright, rectSeen.bottomright)
