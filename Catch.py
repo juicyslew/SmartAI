@@ -26,6 +26,8 @@ class CatchGame():
         self.start_message_time = 200
         self.start_time = 0
         self.caption_text = "AI: A Game of Catch"
+        self.move_data = []
+        self.move_cost = []
         self.init_game()
 
     def eventLoop(self):
@@ -290,7 +292,7 @@ class CatchGame():
             shadow = self.camera.apply(polyshape)
             pg.draw.polygon(self.screen, BLACK, shadow)
 
-    def draw_shadows_save_data(self):
+    def draw_shadows_remove_walls(self):
         #self.debugwalls = []
         polyshapes = []
         for info in self.walls_in_vision:
@@ -396,12 +398,48 @@ class CatchGame():
                             obj_mover.shape.top = wall.shape.bottom+1
         pass
 
+    def save_data(self):
+        center = ((round(self.player.shape.left/OBJ_W) + .5)*OBJ_W, (round(self.player.shape.top/OBJ_H) + .5)*OBJ_H)
+        points_to_check = []
+        points_found = [center]
+        all_points = []
+        all_points_data = []
+        wallcenters = tuple([info[0].shape.center for info in self.walls_in_vision])
+        start = tuple(self.enter_E.shape.center)
+        end = tuple(self.exit_E.shape.center)
+        i = 0
+        while i < LEARN_VISION_TILED:
+            points_to_check = points_found.copy()
+            points_found = []
+            for point in points_to_check:
+                newpoints = ((point[0] + OBJ_W, point[1]),(point[0] - OBJ_W, point[1]),(point[0], point[1]+OBJ_H),(point[0], point[1]-OBJ_H))
+                for newpoint in newpoints:
+                    identity = 0
+                    if newpoint in all_points:
+                        continue
+                    if newpoint in wallcenters or (0<newpoint[0]<GAME_SIZE[0] and 0<newpoint[1]<GAME_SIZE[1]):
+                        identity = 1
+                    elif newpoint == start:
+                        identity = 2
+                    elif newpoint == end:
+                        identity = 3
+                    points_found.append(newpoint)
+                    all_points.append(newpoint)
+                    all_points_data.append([newpoint[0], newpoint[1], identity])
+            i += 1
+        [plx, ply] = self.player.shape.center
+        data = [[px-plx, py-ply, i] for px,py,i in all_points_data]
+        dist = distance([plx,ply], self.exit_E.shape.center)
+        self.move_data.append(data)
+        self.move_cost.append(dist)
 
     def Update(self):
         self.check_input()
         self.handle_collisions()
         self.camera.update(self.player)
         self.walls_seen()
+        if self.start_time % FRAMES_BETWEEN_DATA_UPDATES == 0:
+            self.save_data()
         pass
 
     def Draw(self):
@@ -413,6 +451,7 @@ class CatchGame():
         self.draw_exit()
         self.draw_players()
         if self.shade:
+            #self.draw_shadows_remove_walls()
             self.draw_shadows()
         #self.draw_debug_walls()
         pass
@@ -428,16 +467,36 @@ class CatchGame():
             self.screen.blit(font_surface, (x,y)) #Place on screen
 
     def Loop(self):
-        self.eventLoop()
-        self.clock.tick(self.fps) #set fps to 50
-        self.Update()
-        self.Draw()
-        if self.state == STATE_PLAY:
-            if self.start_time < self.start_message_time:
-                pass
-                #self.show_message(self.start_message)
-        pg.display.flip()
-        self.start_time+=1
+        while True:
+            self.eventLoop()
+            self.clock.tick(self.fps) #set fps to 50
+            self.Update()
+            self.Draw()
+            if self.state == STATE_PLAY:
+                if self.start_time < self.start_message_time:
+                    pass
+                    #self.show_message(self.start_message)
+            pg.display.flip()
+            self.start_time+=1
+            if self.state == STATE_WON or self.state == STATE_RESET:
+                self.Move_Learn()
+                break
+
+    def Move_Learn(self):
+        data3d = np.asarray(self.move_data)
+        costs = np.asarray(self.move_cost)
+        data = None
+        for datavect in data3d:
+            row = np.array([item for sublist in datavect for item in sublist])
+            print(row.shape)
+            if type(data) == np.ndarray:
+                data = np.vstack((data, row))
+            else:
+                data = row
+        print(data.shape)
+        print(costs.shape)
+        #norms = data[0,:] / np.linalg.norm(data[0,:])
+        #print(norms)
 
 
 #Objects in Game
@@ -634,8 +693,5 @@ def seen_edges(rectWatch, rectSeen):
 if __name__ == '__main__':
     for i in range(20):
         game = CatchGame()
-        while True:
-            game.Loop()
-            if game.state == STATE_WON or game.state == STATE_RESET:
-                break
+        game.Loop()
     print('thanks for playing!  Run the command "python3 Catch.py" if you want to play again.')
